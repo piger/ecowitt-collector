@@ -158,8 +158,8 @@ func (msg *Payload) ParseValues(v url.Values) error {
 	return nil
 }
 
-func (msg *Payload) ToSI() (MessageSI, error) {
-	msgSI := MessageSI{
+func (msg *Payload) ToWeatherData() WeatherData {
+	msgSI := WeatherData{
 		Passkey:            msg.Passkey,
 		AbsolutePressure:   units.NewValue(msg.BaromAbsIn, units.InHg),
 		RelativePressure:   units.NewValue(msg.BaromRelIn, units.InHg),
@@ -191,10 +191,10 @@ func (msg *Payload) ToSI() (MessageSI, error) {
 		WindSpeed:          units.NewValue(msg.WindSpeedMph, MilesPerHour),
 	}
 
-	return msgSI, nil
+	return msgSI
 }
 
-type MessageSI struct {
+type WeatherData struct {
 	Passkey            string
 	AbsolutePressure   units.Value
 	RelativePressure   units.Value
@@ -265,10 +265,39 @@ func run(logger *slog.Logger, addr string) error {
 		if err := payload.ParseValues(r.Form); err != nil {
 			logger.Error("error parsing form data", "err", err)
 		}
-		fmt.Printf("payload = %+v\n", payload)
+		// fmt.Printf("payload = %+v\n", payload)
+		logger.Info("payload received", "payload", payload)
 
 		// I think I need to offset by -90 because the West indicator on the probe it's currently pointing South
 		payload.WindDir = offsetDegrees(payload.WindDir, -90)
+
+		wd := payload.ToWeatherData()
+		tempOut, err := wd.OutdoorTemperature.Convert(units.Celsius)
+		if err != nil {
+			logger.Error("error converting weather data", "err", err)
+			return
+		}
+
+		tempIn, err := wd.IndoorTemperature.Convert(units.Celsius)
+		if err != nil {
+			logger.Error("error converting weather data", "err", err)
+			return
+		}
+
+		relPressure, err := wd.RelativePressure.Convert(units.HectoPascal)
+		if err != nil {
+			logger.Error("error converting weather data", "err", err)
+			return
+		}
+
+		absPressure, err := wd.AbsolutePressure.Convert(units.HectoPascal)
+		if err != nil {
+			logger.Error("error converting weather data", "err", err)
+			return
+		}
+
+		fmt.Printf("T: %.1fc, T (out): %.1fc; Relative pressure: %.1fhPa, Absolute Pressure: %.1fhPa\n",
+			tempOut.Float(), tempIn.Float(), relPressure.Float(), absPressure.Float())
 	})
 
 	logger.Info("starting server", "addr", addr)
