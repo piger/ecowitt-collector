@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"github.com/bcicen/go-units"
 	"net/url"
 	"testing"
 )
@@ -17,5 +19,67 @@ func TestParsePayload(t *testing.T) {
 	var msg Message
 	if err := msg.ParseValues(urlValues); err != nil {
 		t.Error(err)
+	}
+
+	temp, err := units.ConvertFloat(msg.TempInF, units.Fahrenheit, units.Celsius)
+	if err != nil {
+		t.Error(err)
+	}
+	fmt.Printf("temperature: %s\n", temp.Fmt(units.FmtOptions{Precision: 1, Label: true}))
+}
+
+func TestOffsetDegrees(t *testing.T) {
+	type args struct {
+		i      int
+		offset int
+	}
+	tests := []struct {
+		name string
+		args args
+		want int
+	}{
+		{
+			name: "0",
+			args: args{i: 0, offset: -90},
+			want: 270,
+		},
+		{
+			name: "1",
+			args: args{i: 207, offset: -90},
+			want: 117,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := offsetDegrees(tt.args.i, tt.args.offset); got != tt.want {
+				t.Errorf("offsetDegrees() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWindDegreesToName(t *testing.T) {
+	tests := []struct {
+		Deg int
+		Dir string
+	}{
+		{Deg: 1, Dir: "N"},
+		{Deg: 359, Dir: "N"},
+		{Deg: 0, Dir: "N"},
+		{Deg: 180, Dir: "S"},
+		{Deg: 12, Dir: "NNE"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.Dir, func(t *testing.T) {
+			got, err := WindDegreesToName(tt.Deg)
+			if err != nil {
+				t.Error(err)
+			}
+
+			if got != tt.Dir {
+				t.Fatalf("got %q, want %q", got, tt.Dir)
+			}
+		})
 	}
 }

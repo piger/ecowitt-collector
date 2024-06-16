@@ -3,8 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/bcicen/go-units"
 	"log"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -14,36 +16,84 @@ import (
 	"time"
 )
 
+var (
+	MilesPerHour    = units.NewUnit("MilesPerHour", "mph")
+	MetersPerSecond = units.NewUnit("MetersPerSecond", "ms")
+
+	WindDirections = []string{"N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"}
+)
+
+// Message is a status update in the Ecowitt protocol.
+// See also: https://www.bentasker.co.uk/posts/blog/house-stuff/receiving-weather-info-from-ecowitt-weather-station-and-writing-to-influxdb.html
+// And: https://locusglobal.com/connecting-a-weather-station-to-fme/
 type Message struct {
-	Passkey        string
-	BaromAbsIn     float64
-	BaromRelIn     float64
-	DailyRainIn    float64
-	DateUTC        time.Time
-	EventRainIn    float64
-	Freq           string
-	Heap           int
-	HourlyRainIn   float64
-	Humidity       int
-	HumidityIn     int
-	Interval       int
-	MaxDailyGust   float64
-	Model          string
-	MonthlyRainIn  float64
-	RainRateIn     float64
-	Runtime        int
+	// Passkey is the MD5 of the MAC address (uppercase)
+	Passkey string
+
+	// Absolute pressure (inHg)
+	BaromAbsIn float64
+
+	// Relative pressure (inHg)
+	BaromRelIn float64
+
+	DailyRainIn float64
+	DateUTC     time.Time
+	EventRainIn float64
+
+	// 868M ?
+	Freq string
+
+	// Memory utilisation? https://www.wxforum.net/index.php?topic=46306.0
+	Heap int
+
+	HourlyRainIn float64
+
+	Humidity   int
+	HumidityIn int
+
+	// in seconds
+
+	Interval     int
+	MaxDailyGust float64
+
+	// WS2900_V2.02.03
+	Model string
+
+	MonthlyRainIn float64
+	RainRateIn    float64
+	Runtime       int
+
+	// fc (foot candles, lol), lux or W/m2
+	// it's in W/m2
 	SolarRadiation float64
-	StationType    string
-	Tempf          float64
-	TempInF        float64
-	TotalRainIn    float64
-	UV             float64 // or int?
-	WeeklyRainIn   float64
-	Wh65Batt       float64 // or int?
-	WindDir        int
-	WindGustMph    float64
-	WindSpeedMph   float64
-	YearlyRainIn   float64
+
+	// EasyWeatherPro_V5.1.6
+	StationType string
+
+	// Outdoor temperature
+	Tempf float64
+
+	// Indoor temperature
+	TempInF float64
+
+	TotalRainIn float64
+
+	// UV index
+	UV float64 // or int?
+
+	WeeklyRainIn float64
+
+	// 0 = OK, 1 = Low?
+	Wh65Batt float64 // or int?
+
+	// degrees
+	WindDir int
+
+	// mph
+	WindGustMph  float64
+	WindSpeedMph float64
+
+	YearlyRainIn float64
 }
 
 func (msg *Message) ParseValues(v url.Values) error {
@@ -108,6 +158,92 @@ func (msg *Message) ParseValues(v url.Values) error {
 	return nil
 }
 
+func (msg *Message) ToSI() (MessageSI, error) {
+	msgSI := MessageSI{
+		Passkey:            msg.Passkey,
+		AbsolutePressure:   units.NewValue(msg.BaromAbsIn, units.InHg),
+		RelativePressure:   units.NewValue(msg.BaromRelIn, units.InHg),
+		Timestamp:          msg.DateUTC,
+		Frequency:          msg.Freq,
+		Heap:               msg.Heap,
+		DailyRain:          units.NewValue(msg.DailyRainIn, units.Inch),
+		EventRain:          units.NewValue(msg.EventRainIn, units.Inch),
+		HourlyRain:         units.NewValue(msg.HourlyRainIn, units.Inch),
+		MonthlyRain:        units.NewValue(msg.MonthlyRainIn, units.Inch),
+		RainRate:           units.NewValue(msg.RainRateIn, units.Inch),
+		TotalRain:          units.NewValue(msg.TotalRainIn, units.Inch),
+		WeeklyRain:         units.NewValue(msg.WeeklyRainIn, units.Inch),
+		YearlyRain:         units.NewValue(msg.YearlyRainIn, units.Inch),
+		OutdoorHumidity:    msg.Humidity,
+		IndoorHumidity:     msg.HumidityIn,
+		Interval:           time.Duration(msg.Interval) * time.Second,
+		Model:              msg.Model,
+		Runtime:            msg.Runtime,
+		SolarRadiation:     msg.SolarRadiation,
+		StationType:        msg.StationType,
+		OutdoorTemperature: units.NewValue(msg.Tempf, units.Fahrenheit),
+		IndoorTemperature:  units.NewValue(msg.TempInF, units.Fahrenheit),
+		UV:                 msg.UV,
+		BatteryLevel:       msg.Wh65Batt,
+		MaxDailyGuts:       units.NewValue(msg.MaxDailyGust, MilesPerHour),
+		WindDirection:      msg.WindDir,
+		WindGust:           units.NewValue(msg.WindGustMph, MilesPerHour),
+		WindSpeed:          units.NewValue(msg.WindSpeedMph, MilesPerHour),
+	}
+
+	return msgSI, nil
+}
+
+type MessageSI struct {
+	Passkey            string
+	AbsolutePressure   units.Value
+	RelativePressure   units.Value
+	Timestamp          time.Time
+	Frequency          string
+	Heap               int
+	DailyRain          units.Value
+	EventRain          units.Value
+	HourlyRain         units.Value
+	MonthlyRain        units.Value
+	RainRate           units.Value
+	TotalRain          units.Value
+	WeeklyRain         units.Value
+	YearlyRain         units.Value
+	OutdoorHumidity    int
+	IndoorHumidity     int
+	Interval           time.Duration
+	Model              string
+	Runtime            int
+	SolarRadiation     float64
+	StationType        string
+	OutdoorTemperature units.Value
+	IndoorTemperature  units.Value
+	UV                 float64 // or int?
+	BatteryLevel       float64
+	MaxDailyGuts       units.Value
+	WindDirection      int
+	WindGust           units.Value
+	WindSpeed          units.Value
+}
+
+func offsetDegrees(i, offset int) int {
+	if offset < 0 {
+		offset += 360
+	}
+
+	return (i + offset) % 360
+}
+
+func WindDegreesToName(d int) (string, error) {
+	if d < 0 || d > 360 {
+		return "", fmt.Errorf("invalid wind degrees %d", d)
+	}
+
+	idx := (float64(d) / 22.5) + 0.5 // 22.5 = 360 degrees / 16 directions
+	idx = math.Floor(idx)
+	return WindDirections[int(idx)%len(WindDirections)], nil
+}
+
 func run(logger *slog.Logger, addr string) error {
 	http.HandleFunc("/data/report/", func(w http.ResponseWriter, r *http.Request) {
 		logger = logger.With("client", r.RemoteAddr)
@@ -147,6 +283,10 @@ func run(logger *slog.Logger, addr string) error {
 	return nil
 }
 
+func setupUnits() {
+	units.NewRatioConversion(MetersPerSecond, MilesPerHour, 0.447)
+}
+
 func main() {
 	var logLevelName string
 	var addr string
@@ -162,6 +302,8 @@ func main() {
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel}))
 	slog.SetDefault(logger)
+
+	setupUnits()
 
 	if err := run(logger, addr); err != nil {
 		log.Fatal(err)
