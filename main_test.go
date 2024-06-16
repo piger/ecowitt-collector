@@ -16,7 +16,7 @@ func TestParsePayload(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var msg Message
+	var msg Payload
 	if err := msg.ParseValues(urlValues); err != nil {
 		t.Error(err)
 	}

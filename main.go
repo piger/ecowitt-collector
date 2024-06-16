@@ -23,10 +23,10 @@ var (
 	WindDirections = []string{"N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"}
 )
 
-// Message is a status update in the Ecowitt protocol.
+// Payload is a status update in the Ecowitt protocol.
 // See also: https://www.bentasker.co.uk/posts/blog/house-stuff/receiving-weather-info-from-ecowitt-weather-station-and-writing-to-influxdb.html
 // And: https://locusglobal.com/connecting-a-weather-station-to-fme/
-type Message struct {
+type Payload struct {
 	// Passkey is the MD5 of the MAC address (uppercase)
 	Passkey string
 
@@ -96,7 +96,7 @@ type Message struct {
 	YearlyRainIn float64
 }
 
-func (msg *Message) ParseValues(v url.Values) error {
+func (msg *Payload) ParseValues(v url.Values) error {
 	structValue := reflect.ValueOf(msg).Elem()
 
 	for key, values := range v {
@@ -158,7 +158,7 @@ func (msg *Message) ParseValues(v url.Values) error {
 	return nil
 }
 
-func (msg *Message) ToSI() (MessageSI, error) {
+func (msg *Payload) ToSI() (MessageSI, error) {
 	msgSI := MessageSI{
 		Passkey:            msg.Passkey,
 		AbsolutePressure:   units.NewValue(msg.BaromAbsIn, units.InHg),
@@ -261,17 +261,14 @@ func run(logger *slog.Logger, addr string) error {
 		}
 
 		// temporary code, so the error here can be just transient
-		var msg Message
-		if err := msg.ParseValues(r.Form); err != nil {
+		var payload Payload
+		if err := payload.ParseValues(r.Form); err != nil {
 			logger.Error("error parsing form data", "err", err)
 		}
-		fmt.Printf("msg = %+v\n", msg)
+		fmt.Printf("payload = %+v\n", payload)
 
-		/*
-			for key, values := range r.Form {
-				fmt.Printf("Form: %s = %s\n", key, strings.Join(values, ","))
-			}
-		*/
+		// I think I need to offset by -90 because the West indicator on the probe it's currently pointing South
+		payload.WindDir = offsetDegrees(payload.WindDir, -90)
 	})
 
 	logger.Info("starting server", "addr", addr)
