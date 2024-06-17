@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/bcicen/go-units"
+	"github.com/piger/ecowitt-collector/internal/config"
 	"log"
 	"log/slog"
 	"math"
@@ -244,7 +245,7 @@ func WindDegreesToName(d int) (string, error) {
 	return WindDirections[int(idx)%len(WindDirections)], nil
 }
 
-func run(logger *slog.Logger, addr string) error {
+func run(logger *slog.Logger, conf config.Config) error {
 	http.HandleFunc("/data/report/", func(w http.ResponseWriter, r *http.Request) {
 		logger := logger.With("client", r.RemoteAddr)
 
@@ -312,9 +313,9 @@ func run(logger *slog.Logger, addr string) error {
 			tempOut.Float(), tempIn.Float(), relPressure.Float(), absPressure.Float(), windGust.Float(), windSpeed.Float())
 	})
 
-	logger.Info("starting server", "addr", addr)
+	logger.Info("starting server", "addr", conf.HTTP.Address)
 
-	if err := http.ListenAndServe(addr, nil); err != nil {
+	if err := http.ListenAndServe(conf.HTTP.Address, nil); err != nil {
 		return err
 	}
 
@@ -326,14 +327,18 @@ func setupUnits() {
 }
 
 func main() {
-	var logLevelName string
-	var addr string
-	flag.StringVar(&logLevelName, "log-level", "INFO", "Set the log level")
-	flag.StringVar(&addr, "addr", ":8080", "Set the bind address and port")
+	var flagConfigFilename string
+	flag.StringVar(&flagConfigFilename, "config", "config.yml", "Path to the configuration file")
 	flag.Parse()
 
+	conf, err := config.Load(flagConfigFilename)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ERROR: failed to load configuration file %s: %s\n", flagConfigFilename, err)
+		os.Exit(1)
+	}
+
 	var logLevel slog.Level
-	if err := logLevel.UnmarshalText([]byte(logLevelName)); err != nil {
+	if err := logLevel.UnmarshalText([]byte(conf.LogLevel)); err != nil {
 		fmt.Fprintf(os.Stderr, "error parsing log-level: %v\n", err)
 		os.Exit(1)
 	}
@@ -343,7 +348,7 @@ func main() {
 
 	setupUnits()
 
-	if err := run(logger, addr); err != nil {
+	if err := run(logger, conf); err != nil {
 		log.Fatal(err)
 	}
 }
