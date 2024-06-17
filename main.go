@@ -246,7 +246,7 @@ func WindDegreesToName(d int) (string, error) {
 
 func run(logger *slog.Logger, addr string) error {
 	http.HandleFunc("/data/report/", func(w http.ResponseWriter, r *http.Request) {
-		logger = logger.With("client", r.RemoteAddr)
+		logger := logger.With("client", r.RemoteAddr)
 
 		if r.Method != "POST" {
 			w.WriteHeader(http.StatusMethodNotAllowed)
