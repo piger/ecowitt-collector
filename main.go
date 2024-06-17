@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"github.com/bcicen/go-units"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/piger/ecowitt-collector/internal/config"
 	"log"
 	"log/slog"
@@ -22,6 +26,38 @@ var (
 	MetersPerSecond = units.NewUnit("MetersPerSecond", "ms")
 
 	WindDirections = []string{"N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"}
+
+	ColumnNames = []string{
+		"time",
+		"station",
+		"pressure_absolute",
+		"pressure_relative",
+		"frequency",
+		"heap",
+		"daily_rain",
+		"event_rain",
+		"hourly_rain",
+		"monthly_rain",
+		"rain_rate",
+		"total_rain",
+		"weekly_rain",
+		"yearly_rain",
+		"humidity_outdoor",
+		"humidity_indoor",
+		"interval",
+		"model",
+		"runtime",
+		"solar_radiation",
+		"station_type",
+		"temperature_outdoor",
+		"temperature_indoor",
+		"uv",
+		"battery",
+		"wind_max_daily_gust",
+		"wind_direction",
+		"wind_gust",
+		"wind_speed",
+	}
 )
 
 // Payload is a status update in the Ecowitt protocol.
@@ -246,6 +282,18 @@ func WindDegreesToName(d int) (string, error) {
 }
 
 func run(logger *slog.Logger, conf config.Config) error {
+	ctx := context.Background()
+
+	pgConfig, err := pgxpool.ParseConfig(conf.Database.DSN)
+	if err != nil {
+		return err
+	}
+
+	pool, err := pgxpool.NewWithConfig(ctx, pgConfig)
+	if err != nil {
+		return err
+	}
+
 	http.HandleFunc("/data/report/", func(w http.ResponseWriter, r *http.Request) {
 		logger := logger.With("client", r.RemoteAddr)
 
@@ -297,6 +345,12 @@ func run(logger *slog.Logger, conf config.Config) error {
 			return
 		}
 
+		windMaxDailyGust, err := wd.MaxDailyGust.Convert(MetersPerSecond)
+		if err != nil {
+			logger.Error("error converting weather data", "err", err)
+			return
+		}
+
 		windGust, err := wd.WindGust.Convert(MetersPerSecond)
 		if err != nil {
 			logger.Error("error converting weather data", "err", err)
@@ -309,8 +363,129 @@ func run(logger *slog.Logger, conf config.Config) error {
 			return
 		}
 
+		dailyRain, err := wd.DailyRain.Convert(units.MilliMeter)
+		if err != nil {
+			logger.Error("error converting weather data", "err", err)
+			return
+		}
+
+		eventRain, err := wd.EventRain.Convert(units.MilliMeter)
+		if err != nil {
+			logger.Error("error converting weather data", "err", err)
+			return
+		}
+
+		hourlyRain, err := wd.HourlyRain.Convert(units.MilliMeter)
+		if err != nil {
+			logger.Error("error converting weather data", "err", err)
+			return
+		}
+
+		monthlyRain, err := wd.MonthlyRain.Convert(units.MilliMeter)
+		if err != nil {
+			logger.Error("error converting weather data", "err", err)
+			return
+		}
+
+		rainRate, err := wd.RainRate.Convert(units.MilliMeter)
+		if err != nil {
+			logger.Error("error converting weather data", "err", err)
+			return
+		}
+
+		totalRain, err := wd.TotalRain.Convert(units.MilliMeter)
+		if err != nil {
+			logger.Error("error converting weather data", "err", err)
+			return
+		}
+
+		weeklyRain, err := wd.WeeklyRain.Convert(units.MilliMeter)
+		if err != nil {
+			logger.Error("error converting weather data", "err", err)
+			return
+		}
+
+		yearlyRain, err := wd.YearlyRain.Convert(units.MilliMeter)
+		if err != nil {
+			logger.Error("error converting weather data", "err", err)
+			return
+		}
+
 		fmt.Printf("T: %.1fc, T (out): %.1fc; Relative pressure: %.1fhPa, Absolute Pressure: %.1fhPa, Wind Gust: %.1f m/s, Wind Speed: %.1f m/s\n",
 			tempOut.Float(), tempIn.Float(), relPressure.Float(), absPressure.Float(), windGust.Float(), windSpeed.Float())
+
+		columns := MakeColumnString(ColumnNames)
+		values := MakeValuesString(ColumnNames)
+
+		fmt.Println(wd.Timestamp,
+			wd.StationType,
+			absPressure.Float(),
+			relPressure.Float(),
+			wd.Frequency,
+			wd.Heap,
+			dailyRain.Float(),
+			eventRain.Float(),
+			hourlyRain.Float(),
+			monthlyRain.Float(),
+			rainRate.Float(),
+			totalRain.Float(),
+			weeklyRain.Float(),
+			yearlyRain.Float(),
+			wd.OutdoorHumidity,
+			wd.IndoorHumidity,
+			wd.Interval.Seconds(),
+			wd.Model,
+			wd.Runtime,
+			wd.SolarRadiation,
+			wd.StationType,
+			tempOut.Float(),
+			tempIn.Float(),
+			wd.UV,
+			wd.BatteryLevel,
+			windMaxDailyGust.Float(),
+			wd.WindDirection,
+			windGust.Float(),
+			windSpeed.Float())
+
+		if _, err := pool.Exec(ctx,
+			fmt.Sprintf("INSERT INTO %s(%s) VALUES(%s)", conf.Database.Table, columns, values),
+			wd.Timestamp,
+			wd.StationType,
+			absPressure.Float(),
+			relPressure.Float(),
+			wd.Frequency,
+			wd.Heap,
+			dailyRain.Float(),
+			eventRain.Float(),
+			hourlyRain.Float(),
+			monthlyRain.Float(),
+			rainRate.Float(),
+			totalRain.Float(),
+			weeklyRain.Float(),
+			yearlyRain.Float(),
+			wd.OutdoorHumidity,
+			wd.IndoorHumidity,
+			wd.Interval.Seconds(),
+			wd.Model,
+			wd.Runtime,
+			wd.SolarRadiation,
+			wd.StationType,
+			tempOut.Float(),
+			tempIn.Float(),
+			wd.UV,
+			wd.BatteryLevel,
+			windMaxDailyGust.Float(),
+			wd.WindDirection,
+			windGust.Float(),
+			windSpeed.Float(),
+		); err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) {
+				logger.Error("postgres error", "message", pgErr.Message, "code", pgErr.Code)
+			} else {
+				logger.Error("error inserting data", "err", err)
+			}
+		}
 	})
 
 	logger.Info("starting server", "addr", conf.HTTP.Address)
@@ -324,6 +499,19 @@ func run(logger *slog.Logger, conf config.Config) error {
 
 func setupUnits() {
 	units.NewRatioConversion(MetersPerSecond, MilesPerHour, 0.447)
+}
+
+func MakeColumnString(names []string) string {
+	return strings.Join(names, ",")
+}
+
+func MakeValuesString(names []string) string {
+	result := make([]string, len(names))
+	for i := range names {
+		result[i] = fmt.Sprintf("$%d", i+1)
+	}
+
+	return strings.Join(result, ",")
 }
 
 func main() {
