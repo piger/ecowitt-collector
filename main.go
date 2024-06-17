@@ -185,7 +185,7 @@ func (msg *Payload) ToWeatherData() WeatherData {
 		IndoorTemperature:  units.NewValue(msg.TempInF, units.Fahrenheit),
 		UV:                 msg.UV,
 		BatteryLevel:       msg.Wh65Batt,
-		MaxDailyGuts:       units.NewValue(msg.MaxDailyGust, MilesPerHour),
+		MaxDailyGust:       units.NewValue(msg.MaxDailyGust, MilesPerHour),
 		WindDirection:      msg.WindDir,
 		WindGust:           units.NewValue(msg.WindGustMph, MilesPerHour),
 		WindSpeed:          units.NewValue(msg.WindSpeedMph, MilesPerHour),
@@ -220,7 +220,7 @@ type WeatherData struct {
 	IndoorTemperature  units.Value
 	UV                 float64 // or int?
 	BatteryLevel       float64
-	MaxDailyGuts       units.Value
+	MaxDailyGust       units.Value
 	WindDirection      int
 	WindGust           units.Value
 	WindSpeed          units.Value
