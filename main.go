@@ -296,8 +296,20 @@ func run(logger *slog.Logger, addr string) error {
 			return
 		}
 
-		fmt.Printf("T: %.1fc, T (out): %.1fc; Relative pressure: %.1fhPa, Absolute Pressure: %.1fhPa\n",
-			tempOut.Float(), tempIn.Float(), relPressure.Float(), absPressure.Float())
+		windGust, err := wd.WindGust.Convert(MetersPerSecond)
+		if err != nil {
+			logger.Error("error converting weather data", "err", err)
+			return
+		}
+
+		windSpeed, err := wd.WindSpeed.Convert(MetersPerSecond)
+		if err != nil {
+			logger.Error("error converting weather data", "err", err)
+			return
+		}
+
+		fmt.Printf("T: %.1fc, T (out): %.1fc; Relative pressure: %.1fhPa, Absolute Pressure: %.1fhPa, Wind Gust: %.1f m/s, Wind Speed: %.1f m/s\n",
+			tempOut.Float(), tempIn.Float(), relPressure.Float(), absPressure.Float(), windGust.Float(), windSpeed.Float())
 	})
 
 	logger.Info("starting server", "addr", addr)
