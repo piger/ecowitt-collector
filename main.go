@@ -7,7 +7,6 @@ import (
 	"github.com/bcicen/go-units"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/piger/ecowitt-collector/internal/config"
-	"log"
 	"log/slog"
 	"math"
 	"net/http"
@@ -491,6 +490,7 @@ func main() {
 	setupUnits()
 
 	if err := run(logger, conf); err != nil {
-		log.Fatal(err)
+		logger.Error("fatal error", "err", err)
+		os.Exit(1)
 	}
 }
