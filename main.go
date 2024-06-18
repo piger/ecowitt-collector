@@ -129,6 +129,16 @@ type Payload struct {
 	WindSpeedMph float64
 
 	YearlyRainIn float64
+	// YearlyRainIn units.Value `unit:"in"`
+}
+
+func compareNoCase(one string) func(string) bool {
+	return func(other string) bool {
+		if strings.ToLower(one) == strings.ToLower(other) {
+			return true
+		}
+		return false
+	}
 }
 
 func (msg *Payload) ParseValues(v url.Values) error {
@@ -141,18 +151,18 @@ func (msg *Payload) ParseValues(v url.Values) error {
 		}
 		rawValue := values[0]
 
-		structFieldValue := structValue.FieldByNameFunc(func(s string) bool {
-			if strings.ToLower(s) == strings.ToLower(key) {
-				return true
-			}
-			return false
-		})
+		structFieldValue := structValue.FieldByNameFunc(compareNoCase(key))
 		if !structFieldValue.IsValid() {
 			return fmt.Errorf("no such field: %s", key)
 		}
 
 		if !structFieldValue.CanSet() {
 			return fmt.Errorf("field cannot be set: %s", key)
+		}
+
+		structType, ok := reflect.TypeOf(msg).Elem().FieldByNameFunc(compareNoCase(key))
+		if !ok {
+			return fmt.Errorf("no such field: %s", key)
 		}
 
 		switch structFieldValue.Kind() {
@@ -176,13 +186,37 @@ func (msg *Payload) ParseValues(v url.Values) error {
 			structFieldValue.SetString(rawValue)
 
 		case reflect.Struct:
-			if structFieldValue.Type() == reflect.TypeOf(time.Time{}) {
-				value, err := time.Parse(time.DateTime, rawValue)
+			switch structFieldValue.Type() {
+			case reflect.TypeOf(units.Value{}):
+				unit := structType.Tag.Get("unit")
+				if unit == "" {
+					return fmt.Errorf("no unit tag for %s", key)
+				}
+
+				value, err := strconv.ParseFloat(rawValue, 64)
 				if err != nil {
 					return fmt.Errorf("error parsing %s: %w", key, err)
 				}
 
+				switch {
+				case unit == "in":
+					structFieldValue.Set(reflect.ValueOf(units.NewValue(value, units.Inch)))
+				case unit == "inHg":
+					structFieldValue.Set(reflect.ValueOf(units.NewValue(value, units.InHg)))
+				case unit == "mph":
+					structFieldValue.Set(reflect.ValueOf(units.NewValue(value, MilesPerHour)))
+				default:
+					return fmt.Errorf("invalid unit tag for %s", key)
+				}
+			case reflect.TypeOf(time.Time{}):
+				value, err := time.Parse(time.DateTime, rawValue)
+				if err != nil {
+					return fmt.Errorf("error parsing time %s: %w", key, err)
+				}
+
 				structFieldValue.Set(reflect.ValueOf(value))
+			default:
+				return fmt.Errorf("unsupported struct type %s", structFieldValue.Type())
 			}
 
 		default:
