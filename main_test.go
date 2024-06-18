@@ -72,7 +72,7 @@ func TestWindDegreesToName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.Dir, func(t *testing.T) {
-			got, err := WindDegreesToName(tt.Deg)
+			got, err := windDegreesToName(tt.Deg)
 			if err != nil {
 				t.Error(err)
 			}
