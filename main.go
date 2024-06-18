@@ -280,7 +280,7 @@ func windDegreesToName(d int) (string, error) {
 	return WindDirections[int(idx)%len(WindDirections)], nil
 }
 
-func sendMetrics(payload Payload, logger *slog.Logger, pool *pgxpool.Pool) error {
+func sendMetrics(payload Payload, pool *pgxpool.Pool, table string) error {
 	wd := payload.ToWeatherData()
 	tempOut, err := wd.OutdoorTemperature.Convert(units.Celsius)
 	if err != nil {
@@ -360,8 +360,11 @@ func sendMetrics(payload Payload, logger *slog.Logger, pool *pgxpool.Pool) error
 	columns := makeColumnString(ColumnNames)
 	values := makeValuesString(ColumnNames)
 
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
 	if _, err := pool.Exec(ctx,
-		fmt.Sprintf("INSERT INTO %s(%s) VALUES(%s)", conf.Database.Table, columns, values),
+		fmt.Sprintf("INSERT INTO %s(%s) VALUES(%s)", table, columns, values),
 		wd.Timestamp,
 		wd.StationType,
 		absPressure.Float(),
@@ -398,7 +401,7 @@ func sendMetrics(payload Payload, logger *slog.Logger, pool *pgxpool.Pool) error
 	return nil
 }
 
-func makeHandler(logger *slog.Logger, pool *pgxpool.Pool, windOffset int) http.Handler {
+func makeHandler(logger *slog.Logger, conf config.Config, pool *pgxpool.Pool, windOffset int) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logger := logger.With("client", r.RemoteAddr)
 
@@ -419,7 +422,7 @@ func makeHandler(logger *slog.Logger, pool *pgxpool.Pool, windOffset int) http.H
 			payload.WindDir = offsetDegrees(payload.WindDir, windOffset)
 		}
 
-		if err := sendMetrics(payload, logger, pool); err != nil {
+		if err := sendMetrics(payload, pool, conf.Database.Table); err != nil {
 			logger.Error("error sending metrics", "err", err)
 		}
 	})
@@ -438,7 +441,7 @@ func run(logger *slog.Logger, conf config.Config) error {
 		return err
 	}
 
-	http.Handle("POST /data/report/", makeHandler(logger, pool, -90))
+	http.Handle("POST /data/report/", makeHandler(logger, conf, pool, -90))
 
 	logger.Info("starting server", "addr", conf.HTTP.Address)
 	if err := http.ListenAndServe(conf.HTTP.Address, nil); err != nil {
