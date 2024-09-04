@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
-	"github.com/bcicen/go-units"
 	"net/url"
 	"testing"
+	"time"
+
+	"github.com/bcicen/go-units"
 )
 
 func TestParsePayload(t *testing.T) {
@@ -26,6 +28,14 @@ func TestParsePayload(t *testing.T) {
 		t.Error(err)
 	}
 	fmt.Printf("temperature: %s\n", temp.Fmt(units.FmtOptions{Precision: 1, Label: true}))
+
+	wantDate, err := time.Parse(time.DateTime, "2024-06-16 16:32:08")
+	if err != nil {
+		t.Error(err)
+	}
+	if wantDate.Compare(msg.DateUTC) != 0 {
+		t.Fatalf("expected %s, got %s", wantDate, msg.DateUTC)
+	}
 }
 
 func TestOffsetDegrees(t *testing.T) {

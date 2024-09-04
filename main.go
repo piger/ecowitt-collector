@@ -10,11 +10,11 @@ import (
 	"net/url"
 	"os"
 	"reflect"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/bcicen/go-units"
+	gorillaSchema "github.com/gorilla/schema"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/piger/ecowitt-collector/internal/config"
 )
@@ -56,7 +56,20 @@ var (
 		"wind_gust",
 		"wind_speed",
 	}
+
+	formDecoder = gorillaSchema.NewDecoder()
 )
+
+// convertDateTime is an helper for the Gorilla schema package that decodes
+// time.Time objects formatted in the DateTime layout.
+func convertDateTime(v string) reflect.Value {
+	dt, err := time.Parse(time.DateTime, v)
+	if err != nil {
+		return reflect.Value{}
+	}
+
+	return reflect.ValueOf(dt)
+}
 
 // Payload is a status update in the Ecowitt protocol.
 // See also: https://www.bentasker.co.uk/posts/blog/house-stuff/receiving-weather-info-from-ecowitt-weather-station-and-writing-to-influxdb.html
@@ -133,96 +146,12 @@ type Payload struct {
 	// YearlyRainIn units.Value `unit:"in"`
 }
 
-func compareNoCase(one string) func(string) bool {
-	return func(other string) bool {
-		return strings.EqualFold(one, other)
-	}
+func init() {
+	formDecoder.RegisterConverter(time.Time{}, convertDateTime)
 }
 
 func (msg *Payload) ParseValues(v url.Values) error {
-	structValue := reflect.ValueOf(msg).Elem()
-
-	for key, values := range v {
-		// url.Values is a map[string][]string, but we're only interested in the first value
-		if len(values) < 1 {
-			return fmt.Errorf("value %s have no values", key)
-		}
-		rawValue := values[0]
-
-		structFieldValue := structValue.FieldByNameFunc(compareNoCase(key))
-		if !structFieldValue.IsValid() {
-			return fmt.Errorf("no such field: %s", key)
-		}
-
-		if !structFieldValue.CanSet() {
-			return fmt.Errorf("field cannot be set: %s", key)
-		}
-
-		structType, ok := reflect.TypeOf(msg).Elem().FieldByNameFunc(compareNoCase(key))
-		if !ok {
-			return fmt.Errorf("no such field: %s", key)
-		}
-
-		switch structFieldValue.Kind() {
-		case reflect.Float64:
-			value, err := strconv.ParseFloat(rawValue, 64)
-			if err != nil {
-				return fmt.Errorf("error parsing %s: %w", key, err)
-			}
-
-			structFieldValue.SetFloat(value)
-
-		case reflect.Int:
-			value, err := strconv.ParseInt(rawValue, 10, 64)
-			if err != nil {
-				return fmt.Errorf("error parsing %s: %w", key, err)
-			}
-
-			structFieldValue.SetInt(value)
-
-		case reflect.String:
-			structFieldValue.SetString(rawValue)
-
-		case reflect.Struct:
-			switch structFieldValue.Type() {
-			case reflect.TypeOf(units.Value{}):
-				unit := structType.Tag.Get("unit")
-				if unit == "" {
-					return fmt.Errorf("no unit tag for %s", key)
-				}
-
-				value, err := strconv.ParseFloat(rawValue, 64)
-				if err != nil {
-					return fmt.Errorf("error parsing %s: %w", key, err)
-				}
-
-				switch {
-				case unit == "in":
-					structFieldValue.Set(reflect.ValueOf(units.NewValue(value, units.Inch)))
-				case unit == "inHg":
-					structFieldValue.Set(reflect.ValueOf(units.NewValue(value, units.InHg)))
-				case unit == "mph":
-					structFieldValue.Set(reflect.ValueOf(units.NewValue(value, MilesPerHour)))
-				default:
-					return fmt.Errorf("invalid unit tag for %s", key)
-				}
-			case reflect.TypeOf(time.Time{}):
-				value, err := time.Parse(time.DateTime, rawValue)
-				if err != nil {
-					return fmt.Errorf("error parsing time %s: %w", key, err)
-				}
-
-				structFieldValue.Set(reflect.ValueOf(value))
-			default:
-				return fmt.Errorf("unsupported struct type %s", structFieldValue.Type())
-			}
-
-		default:
-			return fmt.Errorf("unsupported type %s for field %s", structFieldValue.Kind(), key)
-		}
-	}
-
-	return nil
+	return formDecoder.Decode(msg, v)
 }
 
 func (msg *Payload) ToWeatherData() WeatherData {
