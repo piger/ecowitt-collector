@@ -4,9 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/bcicen/go-units"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/piger/ecowitt-collector/internal/config"
 	"log/slog"
 	"math"
 	"net/http"
@@ -16,6 +13,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/bcicen/go-units"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/piger/ecowitt-collector/internal/config"
 )
 
 var (
@@ -134,10 +135,7 @@ type Payload struct {
 
 func compareNoCase(one string) func(string) bool {
 	return func(other string) bool {
-		if strings.ToLower(one) == strings.ToLower(other) {
-			return true
-		}
-		return false
+		return strings.EqualFold(one, other)
 	}
 }
 
