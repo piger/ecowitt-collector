@@ -14,6 +14,9 @@ import (
 	"github.com/gorilla/schema"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/piger/ecowitt-collector/internal/config"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var (
@@ -50,6 +53,18 @@ var (
 		"wind_gust",
 		"wind_speed",
 	}
+
+	reqProcessed = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "ecowitt_collector_requests_total",
+		Help: "The total number of requests processed by the collector",
+	})
+	reqErrors = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ecowitt_collector_errors_total",
+			Help: "The total number of errors encountered while processing requests",
+		},
+		[]string{"error_type"},
+	)
 )
 
 func offsetDegrees(i, offset int) int {
@@ -122,7 +137,7 @@ func sendMetrics(wd *WeatherData, pool *pgxpool.Pool, table string) error {
 		wd.WindGust,
 		wd.WindSpeed,
 	); err != nil {
-		return err
+		return fmt.Errorf("executing INSERT query: %w", err)
 	}
 
 	return nil
@@ -138,6 +153,7 @@ func makeHandler(logger *slog.Logger, conf config.Config, pool *pgxpool.Pool, wi
 		if err := r.ParseForm(); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			logger.Warn("error parsing form data", "err", err)
+			reqErrors.With(prometheus.Labels{"error_type": "parser"}).Inc()
 			return
 		}
 
@@ -145,6 +161,7 @@ func makeHandler(logger *slog.Logger, conf config.Config, pool *pgxpool.Pool, wi
 		if err := formDecoder.Decode(&p, r.Form); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			logger.Error("error deserializing payload", "err", err)
+			reqErrors.With(prometheus.Labels{"error_type": "decoder"}).Inc()
 			return
 		}
 
@@ -155,13 +172,18 @@ func makeHandler(logger *slog.Logger, conf config.Config, pool *pgxpool.Pool, wi
 		wd, err := NewWeatherData(p)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			logger.Warn("error converting payload to WeatherData", "err", err)
+			logger.Error("error converting payload to WeatherData", "err", err)
+			reqErrors.With(prometheus.Labels{"error_type": "converter"}).Inc()
 			return
 		}
 
 		if err := sendMetrics(wd, pool, conf.Database.Table); err != nil {
 			logger.Error("error sending metrics", "err", err)
+			reqErrors.With(prometheus.Labels{"error_type": "db"}).Inc()
+			return
 		}
+
+		reqProcessed.Inc()
 	})
 }
 
@@ -179,6 +201,7 @@ func run(logger *slog.Logger, conf config.Config) error {
 	}
 
 	http.Handle("POST /data/report/", makeHandler(logger, conf, pool, -90))
+	http.Handle("/metrics", promhttp.Handler())
 
 	logger.Info("starting server", "addr", conf.HTTP.Address)
 	if err := http.ListenAndServe(conf.HTTP.Address, nil); err != nil {
