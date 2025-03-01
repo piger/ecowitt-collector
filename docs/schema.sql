@@ -1,0 +1,33 @@
+CREATE TABLE IF NOT EXISTS weather_station (
+    time TIMESTAMP NOT NULL,
+    station text NOT NULL,
+    pressure_absolute double precision,
+    pressure_relative double precision,
+    frequency text,
+    heap integer,
+    daily_rain double precision,
+    event_rain double precision,
+    hourly_rain  double precision,
+    monthly_rain double precision,
+    rain_rate double precision,
+    total_rain double precision,
+    weekly_rain double precision,
+    yearly_rain double precision,
+    humidity_outdoor integer,
+    humidity_indoor integer,
+    interval integer,
+    model text,
+    runtime integer,
+    solar_radiation double precision,
+    station_type text,
+    temperature_outdoor double precision,
+    temperature_indoor double precision,
+    uv double precision,
+    battery double precision,
+    wind_max_daily_gust double precision,
+    wind_direction integer,
+    wind_gust double precision,
+    wind_speed double precision
+);
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+SELECT create_hypertable('weather_station', 'time');
