@@ -105,6 +105,9 @@ type payload struct {
 	// UV index
 	UV float64 // or int?
 
+	// Vapour Pressure Deficit
+	VPD float64
+
 	// Total rain recorded this week (in)
 	WeeklyRainIn float64
 
